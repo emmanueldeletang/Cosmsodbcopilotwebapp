@@ -21,7 +21,6 @@ from azure.cosmos import ThroughputProperties
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.document_loaders import UnstructuredWordDocumentLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_experimental.text_splitter import SemanticChunker
 from azure.identity import DefaultAzureCredential
 from openai import AzureOpenAI
 from azure.core.exceptions import AzureError
@@ -37,8 +36,6 @@ from tempfile import NamedTemporaryFile
 load_dotenv()
 
 
-env_name = "configuration.env" # following example.env template change to your own .env file name
-config = dotenv_values(env_name)
 
 
 
@@ -67,6 +64,7 @@ colvector = config['cosmosdbsourcecol']
 cachecol = config['cosmsodbcache']
 cosmosdbcolcompletion = config['cosmosdbcolcompletion']
 container_name = config['cosmosdbcolcompletion']
+targetcolection = config['cosmosdargussource']
 
 # Create the OpenAI client
 openai_client = AzureOpenAI(
@@ -85,10 +83,9 @@ client = CosmosClient(ENDPOINT, key)
 
 def createvectordb(collection):
     
+    mydbt = client.create_database_if_not_exists(id=dbsource)
    
-    mydbt = client.get_database_client(dbsource)
     
-   
     
     vector_embedding_policy = { "vectorEmbeddings": [ {  "path": "/embedding",  "dataType": "float32",  "distanceFunction": "cosine",  "dimensions": 1536  } ] }
     indexing_policy = { "includedPaths": [ { "path": "/*" } ], "excludedPaths": [  {  "path": "/\"_etag\"/?" }  ], "vectorIndexes": [ {"path": "/embedding", "type": "diskANN"  }] }
@@ -125,7 +122,7 @@ def loaddata(db,collection, filepath) :
                 d['text']= json.dumps(d)
                 container.upsert_item(d)
         
-# count products
+
         query = "SELECT VALUE COUNT(1) FROM c"
 
         total_count = 0
@@ -435,8 +432,8 @@ def ReadFeed(collection):
        
            
         
-         #response = mycolt.query_items_change_feed(start_time=time)
-        response = mycolt.query_items_change_feed( )
+        response = mycolt.query_items_change_feed(start_time=time)
+        #response = mycolt.query_items_change_feed( )
         
         for doc in response:
             add_doc(openai_client, mycoltembed, doc,name)
@@ -517,10 +514,9 @@ def cacheresponse(user_prompt, prompt_vectors, response, username):
  
 
 def clearall(): 
-    mydbt = client.get_database_client(dbsource)
-    cont = mydbt.list_containers()
-    for c in cont : 
-       mydbt.delete_container(c)
+    
+    client.delete_database(dbsource)
+
 
 
 def createcachecollection():
@@ -674,6 +670,84 @@ def chat_completion(user_input,username, cachecoeficient, coefficient, maxresult
         
         return completions_results['choices'][0]['message']['content'], False
 
+def loaddataargus( argusdb,arguscollection , argusurl,arguskey, targetcolection) :
+    
+    clientargus = CosmosClient(argusurl, {'masterKey': arguskey})
+    mydbtsource = clientargus.get_database_client(argusdb)   
+    mydbt = client.get_database_client(dbsource)   
+    
+    print(mydbt)
+    print(mydbtsource)
+    
+    try:
+        container = mydbt.create_container_if_not_exists( 
+        id= targetcolection, 
+        partition_key=PartitionKey(path='/id')
+        )
+        query = "SELECT  c.id,c.extracted_data  FROM c"
+        source = mydbtsource.get_container_client(arguscollection)
+        result = source.query_items(
+            query=query,
+            enable_cross_partition_query=True)
+
+        for item in result:
+            item['text']= json.dumps(item)
+            container.upsert_item(item)
+
+        query = "SELECT VALUE COUNT(1) FROM c"
+        total_count = 0
+        result = container.query_items(
+            query=query,
+            enable_cross_partition_query=True)
+        for item in result:
+            total_count += item
+        print("Total count:", total_count)
+        return total_count
+    except : 
+        raise  
+
+
+def extract_gpt_summary_output(data,data2):
+    """
+    Extrait la valeur de 'gpt_summary_output' d'un dictionnaire donné.
+
+    Args:
+    data (dict): Le dictionnaire contenant les données.
+
+    Returns:
+    str: La valeur de 'gpt_summary_output' si elle existe, sinon None.
+    """
+    # return data.get('gpt_summary_output')
+    return data.get(data2)
+
+
+def ReadFeedargus(collection):
+        
+       
+        mydbt = client.get_database_client(dbsource)   
+        mycolt = mydbt.get_container_client(targetcolection)
+        mycoltembed = mydbt.get_container_client(colvector) 
+        name = collection
+        
+     
+        # Define a point in time to start reading the feed from
+        time = datetime.datetime.now()
+        
+        print (time)
+        time = time - datetime.timedelta(days=1)
+        print (time)
+        
+        response = mycolt.query_items_change_feed(start_time=time)
+        #response = mycolt.query_items_change_feed( )
+        
+        for doc in response:
+            summary_output = extract_gpt_summary_output(doc["extracted_data"],'gpt_summary_output')
+            details = extract_gpt_summary_output(doc["extracted_data"],'gpt_extraction_output')
+            doc1 = {}
+            doc1["id"] = doc["id"]
+            doc1["summary_output"] = summary_output
+            doc1["details"] = details
+            add_doc(openai_client, mycoltembed, doc1,name)
 
 
 # Fonction pour authentifier l'utilisateur
@@ -695,8 +769,7 @@ def main():
     maxresult = 5
     global chat_history
     chat_history = []
-    fileload=[]
-
+  
     # Initialize session state for login
     if 'logged_in' not in st.session_state:
         st.session_state.logged_in = False
@@ -708,31 +781,35 @@ def main():
         st.success(display)
 
         # Onglets
-        tab1, tab2, tab3, tab4 = st.tabs(["Configuration", "Chargement", "Chat", "Create by "])
+        tab1, tab2, tab3, tab4 ,tab5  = st.tabs(["Configuration", "Loading file", "Chat with your data","load argus data " ,"Create by "])
 
         with tab1:
             st.header("Configuration")
-            coefficient = st.slider("Coefficient de similarité", 0.0, 1.0, 0.78)
-            cachecoeficient = st.slider("Coefficient de similarité pour le cache", 0.0, 1.0, 0.99)
-            maxresult = st.slider("Nombre de résultats", 1, 10, 5)
             
-            if st.button("create new vector DB"):
+            if st.button("create the Vector collection and cache collection "):
+                st.write("start the operation")
                 createvectordb(colvector)
                 createcachecollection()
-                st.write("La base de données vectorielle a été créée et le cache.")
+                st.write("the database and collection vector and cache are created ")
                 
             
-            if st.button("clear cache"):
-                st.write("Cache cleared.")
+            if st.button("clear the cache collection for show cache"):
+                st.write("start clear the Cache")
                 clearcache()
                 st.write("Cache cleared.")
-                st.write("delete all collection")
+                
                 
 
-            if st.button("clear all "):
+            if st.button("delete all the database and collection to reinit"):
                 st.write("delete all collection")
                 clearall()
                 st.write("all collection delete ")
+            
+            coefficient = st.slider("similarity coef for the search in database by default 78 % ", 0.0, 1.0, 0.78)
+            cachecoeficient = st.slider("similarity coef for the cache search in database by default 99 %", 0.0, 1.0, 0.99)
+            maxresult = st.slider("Numbers of max result in the database retrieve by similarity", 1, 10, 5)
+            
+  
 
         with tab2:
             st.header("Chargement de document ")
@@ -811,10 +888,28 @@ def main():
                     st.session_state.messages.append({"role": "assistant", "content":chat_history})
                     st.write(chat_history)
             
-           
-                
         with tab4:
-            st.write("made by emmanuel")
+            st.write("load the data and connect the data from argus accelerator")
+            st.write("result Getting data from ARGUS ACCELERATOR : https://github.com/Azure-Samples/ARGUS")
+            argusdb = st.text_input("your Argus cosmosdb database", "doc-extracts")
+            argusurl = st.text_input("your Argus csomsodb URI", "http... ")
+            arguskey = st.text_input("your Argus csomsodb key", "xxxx... ")
+            arguscollection = st.text_input("your Argus cosmosdb collection source", "documents")
+            
+            if st.button("load the data "):
+                if arguscollection == None or arguskey == None or argusurl == None : 
+                    st.write ( "parameters non correct , please entry your key , url and colleciton")
+                else:
+                    total = loaddataargus( argusdb,arguscollection , argusurl,arguskey, targetcolection) 
+                    st.write("Total count of data loaded from argus source : ", total)
+                    ReadFeedargus(targetcolection)
+                    st.write("argus data are in the vector you can chat in the chat tab")
+            
+        with tab5:
+            st.write("made by emmanuel deletang in case of need contact him at edeletang@microsoft.com")
+                
+                
+ 
 
 
     else:
