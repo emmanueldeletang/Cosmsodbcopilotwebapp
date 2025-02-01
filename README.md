@@ -21,4 +21,5 @@ a full web application where you can load file( csv , json , word , pdf ) and ma
 - TO LAUNCH THE APPLICATION JUST do Streamlit run app.py
 - enter a login name and after in the first login and all the collections will be create just push the button ( create vector db  )
 - have fun
-- some sample document are in the dataset folder 
+- some sample document are in the dataset folder
+- I have add the capacity to load the data from the from ARGUS ACCELERATOR : https://github.com/Azure-Samples/ARGUS made by some collegues 
