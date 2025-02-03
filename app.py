@@ -610,7 +610,7 @@ def clearcache ():
 def generatecompletionede(user_prompt, vector_search_results, chat_history):
     
     system_prompt = '''
-    You are an intelligent assistant for yourdata . You are designed to provide helpful answers to user questions about  your data.
+    You are an intelligent assistant for yourdata , please answer in the same langage use by the user . You are designed to provide helpful answers to user questions about your data.
     You are friendly, helpful, and informative and can be lighthearted. Be concise in your responses, but still friendly.
         - Only answer questions related to the information provided below. 
         - Write two lines of whitespace between each answer in the list.
@@ -826,37 +826,37 @@ def main():
                 absolute_file_path = os.path.abspath(uploaded_file.name)
                 st.write(f"Le chemin absolu du fichier est : {absolute_file_path}")
                 
-                if ".doc" in uploaded_file.name:
-                    loadwordfile(dbsource,'word',uploaded_file.name,absolute_file_path )
-                    ReadFeed('word')
-                   
-                    st.write("Le fichier est un document Word.")
-                elif ".pdf" in uploaded_file.name:
-                    loadpdffile(dbsource,'pdf',uploaded_file.name,absolute_file_path )
-                    ReadFeed('pdf')
-                    st.write("Le fichier est un document PDF." + uploaded_file.name)
-                elif ".json" in uploaded_file.name:
-                    name = uploaded_file.name.replace('.json', '')
-                    print("name")
-                    loaddata(dbsource,name,absolute_file_path )
-                    ReadFeed('pdf')
-                    st.write("Le fichier est un document JSON." + uploaded_file.name )
-                elif ".csv" in uploaded_file.name:
-                    loadcsvfile(dbsource,'csv',uploaded_file.name,absolute_file_path )
-                    ReadFeed('csv')
-                    st.write("Le fichier est un document csv." + uploaded_file.name )
+                
+                if st.button("load data "):
+                    st.write("start the operation")
+                
+                    if ".doc" in uploaded_file.name:
+                        loadwordfile(dbsource,'word',uploaded_file.name,absolute_file_path )
+                        ReadFeed('word')
+                    
+                        st.write("Le fichier est un document Word.")
+                    elif ".pdf" in uploaded_file.name:
+                        loadpdffile(dbsource,'pdf',uploaded_file.name,absolute_file_path )
+                        ReadFeed('pdf')
+                        st.write("Le fichier est un document PDF." + uploaded_file.name)
+                    elif ".json" in uploaded_file.name:
+                        name = uploaded_file.name.replace('.json', '')
+                        print("name")
+                        loaddata(dbsource,name,absolute_file_path )
+                        ReadFeed('pdf')
+                        st.write("Le fichier est un document JSON." + uploaded_file.name )
+                    elif ".csv" in uploaded_file.name:
+                        loadcsvfile(dbsource,'csv',uploaded_file.name,absolute_file_path )
+                        ReadFeed('csv')
+                        st.write("Le fichier est un document csv." + uploaded_file.name )
 
-                os.remove(absolute_file_path)
-                st.write(f"Le fichier temporaire {absolute_file_path} a été supprimé.")
+                    os.remove(absolute_file_path)
+                    st.write(f"Le fichier temporaire {absolute_file_path} a été supprimé.")
 
          
         with tab3:
             st.header("Chat")
-            reset_button_key = "reset_button"
-            reset_button = st.button("Reset Chat",key=reset_button_key)
-            if reset_button:
-                st.session_state.messages = ""
-                st.chat_message = None
+           
                 
             st.write("Chatbot goes here")
             if "messages" not in st.session_state:
@@ -908,7 +908,7 @@ def main():
         with tab5:
             st.write("made by emmanuel deletang in case of need contact him at edeletang@microsoft.com")
                 
-                
+
  
 
 
