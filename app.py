@@ -31,6 +31,11 @@ from langchain_community.document_loaders import PyPDFLoader
 from langchain_community.document_loaders import UnstructuredWordDocumentLoader
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from tempfile import NamedTemporaryFile
+from azure.cosmos import CosmosClient, PartitionKey
+from langchain_community.vectorstores.azure_cosmos_db_no_sql import (
+    AzureCosmosDBNoSqlVectorSearch,
+)
+
 
 
 load_dotenv()
@@ -76,7 +81,6 @@ openai_client = AzureOpenAI(
 
 
 ENDPOINT =  config['cosmos_host']
-
 client = CosmosClient(ENDPOINT, key)
 
 
@@ -85,22 +89,36 @@ def createvectordb(collection):
     
     mydbt = client.create_database_if_not_exists(id=dbsource)
    
-    
-    
-    vector_embedding_policy = { "vectorEmbeddings": [ {  "path": "/embedding",  "dataType": "float32",  "distanceFunction": "cosine",  "dimensions": 1536  } ] }
-    indexing_policy = { "includedPaths": [ { "path": "/*" } ], "excludedPaths": [  {  "path": "/\"_etag\"/?" }  ], "vectorIndexes": [ {"path": "/embedding", "type": "diskANN"  }] }
+    indexing_policy = {
+    "indexingMode": "consistent",
+    "includedPaths": [{"path": "/*"}],
+    "excludedPaths": [{"path": '/"_etag"/?'}],
+    "vectorIndexes": [{"path": "/embedding", "type": "diskANN"}],
+    "fullTextIndexes": [{"path": "/text"}],
+    }
 
+
+
+    vector_embedding_policy = { "vectorEmbeddings": [ {  "path": "/embedding",  "dataType": "float32",  "distanceFunction": "cosine",  "dimensions": 1536  } ] }
+    fulltxt= { "defaultLanguage": "en-US", "fullTextPaths": [ {"path": "/text","language": "en-US" } ]}
+    indexing_policy = { "includedPaths": [ { "path": "/*" } ], "excludedPaths": [  {  "path": "/\"_etag\"/?" }  ], "vectorIndexes": [ {"path": "/embedding", "type": "diskANN"  }],  "fullTextIndexes": [{"path": "/text" } ] }
     try:
         container = mydbt.create_container_if_not_exists( 
         id= collection, 
         partition_key=PartitionKey(path='/id'), 
         offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000, auto_scale_increment_percent=0),
-        indexing_policy=indexing_policy, 
-        vector_embedding_policy=vector_embedding_policy) 
+        indexing_policy=indexing_policy , 
+        vector_embedding_policy=vector_embedding_policy,
+        #full_text_policy=fulltxt,
+        ) 
+        
+        
      
               
     except : 
          raise
+     
+
 
 
 def loaddata(db,collection, filepath) :
@@ -314,7 +332,7 @@ def add_doc(openai_client, collection, doc,name):
         doc1 = {}
         doc1["id"] = doc["id"]
         doc1["source"]= name
-        
+        doc1["text"]= doc["text"]
         doc1["embedding"] = generate_embeddings(openai_client, json.dumps(doc))
         
     
@@ -342,7 +360,8 @@ def chat_completion(user_message):
     cached = False
     return response_payload, cached
 
-def get_similar_docs(openai_client, db, query_text, limit,sim):
+
+def get_similar_docs(openai_client, db, query_text, limit,sim, typesearch):
     """ 
         Get similar documents from Cosmos DB for NoSQL 
 
@@ -355,62 +374,112 @@ def get_similar_docs(openai_client, db, query_text, limit,sim):
             elapsed_time
     """
     # vectorize the question
-  
+ 
     mydbt = client.get_database_client(db)   
     cvector = mydbt.get_container_client(colvector)
     
-   
-    query_vector = generate_embeddings(openai_client, query_text)
-    query = f"""
-        SELECT TOP @num_results  c.id,c.source, VectorDistance(c.embedding, @embedding) as SimilarityScore 
-        FROM c
-        WHERE VectorDistance(c.embedding,@embedding) > @similarity_score
-        ORDER BY VectorDistance(c.embedding,@embedding)
-    """
-    results = cvector.query_items(
-        query=query,
-         parameters=[
-            {"name": "@embedding", "value": query_vector},
-            {"name": "@num_results", "value": limit},
-            {"name": "@similarity_score", "value": sim}
-        ],
-        enable_cross_partition_query=True, populate_query_metrics=True
-    )   
-    
+    if  typesearch == "vector":
+            query_vector = generate_embeddings(openai_client, query_text)
+            query = f"""
+                SELECT TOP @num_results  c.id,c.source, VectorDistance(c.embedding, @embedding) as SimilarityScore 
+                FROM c
+                WHERE VectorDistance(c.embedding,@embedding) > @similarity_score
+                ORDER BY VectorDistance(c.embedding,@embedding)
+            """
+            results = cvector.query_items(
+                query=query,
+                parameters=[
+                    {"name": "@embedding", "value": query_vector},
+                    {"name": "@num_results", "value": limit},
+                    {"name": "@similarity_score", "value": sim}
+                ],
+                enable_cross_partition_query=True, populate_query_metrics=True
+            )   
+            print("vector")
+         
+    elif  typesearch == "full text":
            
-    listid = []
-    source = ""
-    # get products from list of id
-    id_list = [id for id in results]
-
-    for i in id_list:
-            listid.append(i['id'])
-            source = (i['source'])
-                                  
-        
-    if listid == []:
-        products = []
-    else : 
-        id_list_str = ', '.join([f"'{id}'" for id in listid]) 
-        
-      
-        mycolt = mydbt.get_container_client(source)
-            
-        query = f"""
-                    SELECT * FROM c 
-                    WHERE  c.id IN ({id_list_str})
-                """
+            query = f"""
+                SELECT TOP @num_results  c.id,c.source 
+                FROM c
+                WHERE  FullTextContainsAll(c.text, @query_text)
                 
+            """
+            print (query)
+            results = cvector.query_items(
+                query=query,
+                parameters=[
+                    {"name": "@query_text", "value": query_text},
+                    {"name": "@num_results", "value": limit}
+                ],
+                enable_cross_partition_query=True, populate_query_metrics=True
+            )
+            print("full text")
+          
+    elif  typesearch == "hybrid":
+            query_vector = generate_embeddings(openai_client, query_text)
+            query_text =query_text.split()
+            print (query_text)
+            print(limit)
             
-        results = mycolt.query_items(
-                    query=query,
-                    enable_cross_partition_query=True
-        )
-
-        products = []
-        for product in results:
-            products.append(product)    
-
+            
+            query = f"""
+                SELECT TOP """+ str(limit)+"""  c.id,c.source,c.text 
+                FROM c
+                ORDER BY RANK RRF(VectorDistance(c.embedding,"""+ str(query_vector)+"""), FullTextScore(c.text, """+ str(query_text)+"""))
+            """
+            print(query)
+            results = list(cvector.query_items(
+                query=query,
+                #parameters=[
+                #    {"name": "@queryVector", "value": query_vector},
+                #    {"name": "@query_text", "value": query_text},
+                #    {"name": "@num_results", "value": limit}
+                #],
+                enable_cross_partition_query=True
+            ))
+            print("hybrid")
+         
+            
+    products = []      
+   
+    if results and typesearch != "hybrid" : 
+ 
+        for a in results:
+            print(a)
+            source = a['source']
+            id = a['id']    
+     
+               
+            mycolt = mydbt.get_container_client(source)  
+            response = mycolt.read_item(item=id, partition_key=id)
+            res = response.get('text')
+          
+            products.append({"text": res})
+            
+        print("fin de traitement")
+        
+    else:
+        print("debut de traitement hybrid")
+        print(results)
+        
+        web_tests_list = []
+        print("debut de traitement ")
+        # Iterate through the pages and append the items to the list
+        for web_test in results:
+            web_tests_list.append(web_test)
+        print("debuCOPIE traitement ")
+        
+        for a in web_tests_list:
+            print(a)
+            text = a['text']
+            products.append({"text": text})
+            
+        print("fin de traitement hybrid")
+        
+        
+        
+         
     return products
 
 
@@ -438,6 +507,8 @@ def ReadFeed(collection):
         for doc in response:
             add_doc(openai_client, mycoltembed, doc,name)
 
+
+
 def get_chat_history(  username,completions=1):
     
    
@@ -457,6 +528,8 @@ def get_chat_history(  username,completions=1):
         ], enable_cross_partition_query=True)
     results = list(results)
     return results
+
+
 
 def cachesearch( vectors, username,similarity_score , num_results):
     # Execute the query
@@ -517,8 +590,6 @@ def clearall():
     
     client.delete_database(dbsource)
 
-
-
 def createcachecollection():
     mydbt = client.get_database_client(dbsource)   
       
@@ -549,18 +620,16 @@ def createcachecollection():
 # Create the cache collection with vector index
     try:
         mydbt.create_container_if_not_exists( id=cachecol, 
-                                                  partition_key=PartitionKey(path='/id'), 
-                                                  indexing_policy=indexing_policy,
-                                                  vector_embedding_policy=vector_embedding_policy
-                                                ) 
+                                            partition_key=PartitionKey(path='/id'),
+                                            offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000, auto_scale_increment_percent=0), 
+                                            indexing_policy=indexing_policy,
+                                            vector_embedding_policy=vector_embedding_policy
+                                            ) 
  
 
     except exceptions.CosmosHttpResponseError: 
         raise 
    
-
-
-
 def clearcache ():
    
  
@@ -607,14 +676,14 @@ def clearcache ():
         raise 
     return "Cache cleared."
      
-def generatecompletionede(user_prompt, vector_search_results, chat_history):
+def generatecompletionede(user_prompt, username,vector_search_results, chat_history):
     
     system_prompt = '''
     You are an intelligent assistant for yourdata , please answer in the same langage use by the user . You are designed to provide helpful answers to user questions about your data.
-    You are friendly, helpful, and informative and can be lighthearted. Be concise in your responses, but still friendly.
+    You are friendly, helpful, and informative and can be lighthearted. Be concise in your responses, but still friendly.use the name of the file where the information is stored to provide the answer.
+        - start with the hello ''' + username + '''
         - Only answer questions related to the information provided below. 
-        - Write two lines of whitespace between each answer in the list.
-    '''
+        - Write two lines of whitespace between each answer in the list.'''
 
     # Create a list of messages as a payload to send to the OpenAI Completions API
 
@@ -640,7 +709,7 @@ def generatecompletionede(user_prompt, vector_search_results, chat_history):
     
     return response
 
-def chat_completion(user_input,username, cachecoeficient, coefficient, maxresult):
+def chat_completion(user_input,username, cachecoeficient, coefficient, maxresult, typesearch):
 
     # Generate embeddings from the user input
     user_embeddings = generate_embeddings(openai_client, user_input)
@@ -654,14 +723,14 @@ def chat_completion(user_input,username, cachecoeficient, coefficient, maxresult
     else:
         # Perform vector search on the movie collection
        
-        search_results = get_similar_docs(openai_client, dbsource, user_input, maxresult,coefficient)
+        search_results = get_similar_docs(openai_client, dbsource, user_input, maxresult,coefficient, typesearch)
         
         
         # Chat history
         chat_history = get_chat_history(username,1)
 
         # Generate the completion
-        completions_results = generatecompletionede(user_input, search_results, chat_history)
+        completions_results = generatecompletionede(user_input,username ,search_results, chat_history)
 
         # Cache the response
         cacheresponse(user_input, user_embeddings, completions_results,username)
@@ -682,6 +751,7 @@ def loaddataargus( argusdb,arguscollection , argusurl,arguskey, targetcolection)
     try:
         container = mydbt.create_container_if_not_exists( 
         id= targetcolection, 
+        offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000, auto_scale_increment_percent=0),
         partition_key=PartitionKey(path='/id')
         )
         query = "SELECT  c.id,c.extracted_data  FROM c"
@@ -746,6 +816,7 @@ def ReadFeedargus(collection):
             doc1 = {}
             doc1["id"] = doc["id"]
             doc1["summary_output"] = summary_output
+            doc1["text"] = summary_output
             doc1["details"] = details
             add_doc(openai_client, mycoltembed, doc1,name)
 
@@ -814,7 +885,7 @@ def main():
         with tab2:
             st.header("Chargement de document ")
         
-            uploaded_file = st.file_uploader("Choisissez un fichier", type=["pdf", "docx", "json"])
+            uploaded_file = st.file_uploader("Choisissez un fichier", type=["pdf", "docx","csv" ,"json"])
             if uploaded_file is not None:
                 st.write("Fichier sélectionné:", uploaded_file.name)
         
@@ -831,24 +902,27 @@ def main():
                     st.write("start the operation")
                 
                     if ".doc" in uploaded_file.name:
+                        st.write("this is a file type word "+ uploaded_file.name )
                         loadwordfile(dbsource,'word',uploaded_file.name,absolute_file_path )
                         ReadFeed('word')
-                    
-                        st.write("Le fichier est un document Word.")
+                        st.write("file load" +uploaded_file.name )
+                        
                     elif ".pdf" in uploaded_file.name:
+                        st.write("this is a file type pdf "+ uploaded_file.name )
                         loadpdffile(dbsource,'pdf',uploaded_file.name,absolute_file_path )
                         ReadFeed('pdf')
-                        st.write("Le fichier est un document PDF." + uploaded_file.name)
+                        st.write("file load" +uploaded_file.name )
                     elif ".json" in uploaded_file.name:
+                        st.write("this is a file type json "+ uploaded_file.name )
                         name = uploaded_file.name.replace('.json', '')
-                        print("name")
                         loaddata(dbsource,name,absolute_file_path )
                         ReadFeed('pdf')
-                        st.write("Le fichier est un document JSON." + uploaded_file.name )
+                        st.write("file load" +uploaded_file.name )
                     elif ".csv" in uploaded_file.name:
+                        st.write("this is a file type csv "+ uploaded_file.name )
                         loadcsvfile(dbsource,'csv',uploaded_file.name,absolute_file_path )
                         ReadFeed('csv')
-                        st.write("Le fichier est un document csv." + uploaded_file.name )
+                        st.write("file load" +uploaded_file.name )
 
                     os.remove(absolute_file_path)
                     st.write(f"Le fichier temporaire {absolute_file_path} a été supprimé.")
@@ -856,7 +930,14 @@ def main():
          
         with tab3:
             st.header("Chat")
-           
+            models = [
+                "vector",
+                "full text","hybrid"
+                ]
+
+            typesearch = st.selectbox(
+                'type search',
+                    (models))
                 
             st.write("Chatbot goes here")
             if "messages" not in st.session_state:
@@ -873,7 +954,7 @@ def main():
                 with st.chat_message("assistant"):
                     question = prompt
                     start_time = time.time()
-                    response_payload, cached = chat_completion(question,username,cachecoeficient,coefficient, maxresult)
+                    response_payload, cached = chat_completion(question,username,cachecoeficient,coefficient, maxresult, typesearch)
                     end_time = time.time()
                     elapsed_time = round((end_time - start_time) * 1000, 2)
                     response = response_payload
