@@ -1,14 +1,16 @@
 # Cosmsodbcopilotwebapp
 a full web application where you can load file( csv , json , word , pdf ) and make llm and vector search with sample code to bulid your copilot and load your data inside and put question and answer in cache to save time
+you can test with this new version de full text search and hybrid search in cosmsodb ... be sure you have activate the feature in preview as present here https://learn.microsoft.com/en-us/azure/cosmos-db/gen-ai/full-text-search
 
 
 ## Features
 - Vector search using Azure Cosmos DB for NoSQL
+- full text and hybrid search using Azure Cosmos DB for NoSQL
 - Create embeddings using Azure OpenAI text-embedding
 - Use cosmosdb Nosql as cache to save latency
 
 ## Requirements
-- Tested only with Python 3.11
+- Tested only with Python 3.12
 - Azure OpenAI account
 - Azure Cosmos DB for NoSQL account
 
