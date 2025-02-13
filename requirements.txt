@@ -21,3 +21,8 @@ docx2txt
 ipywidgets
 azure-identity
 streamlit
+unstructured
+python-magic
+python-pptx
+openpyxl
+networkx

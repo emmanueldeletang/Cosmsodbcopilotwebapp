@@ -35,7 +35,8 @@ from azure.cosmos import CosmosClient, PartitionKey
 from langchain_community.vectorstores.azure_cosmos_db_no_sql import (
     AzureCosmosDBNoSqlVectorSearch,
 )
-
+from langchain_community.document_loaders import UnstructuredPowerPointLoader
+from langchain_community.document_loaders import UnstructuredExcelLoader
 
 
 load_dotenv()
@@ -158,7 +159,92 @@ def loaddata(db,collection, filepath) :
     
     except : 
      raise  
+    
+    
+    
+def loadpptfile(db,collection, name,filepath) :
+    
+    loader = UnstructuredPowerPointLoader(filepath)
+    data = loader.load() 
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+    docs = text_splitter.split_documents(data)
+    
+    mydbt = client.get_database_client(db) 
+   
+   
+    try:
+        container = mydbt.create_container_if_not_exists( 
+        id= collection, 
+        partition_key=PartitionKey(path='/id'), 
+        offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000, auto_scale_increment_percent=0))
+        
        
+        for d in docs : 
+            docu= {} 
+            docu["id"] = str(uuid.uuid4())
+            docu["file"] = name
+            docu["text"] = str(d)
+            container.upsert_item(docu)
+    except : 
+     raise     
+# count 
+    try : 
+     query = "SELECT VALUE COUNT(1) FROM c"
+
+     total_count = 0
+
+     result = container.query_items(
+     query=query,
+     enable_cross_partition_query=True)
+
+     for item in result:
+        total_count += item
+
+        print("Total count ppt :", total_count)
+        
+       
+    
+    except : 
+     raise  
+
+
+
+def loadxlsfile(db,collection, name,filepath) :
+    
+    mydbt = client.get_database_client(db)   
+    loader = UnstructuredExcelLoader(filepath, mode="elements")
+    data = loader.load()
+    
+    try:
+        container = mydbt.create_container_if_not_exists( 
+        id= collection, 
+        partition_key=PartitionKey(path='/id'), 
+        offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000, auto_scale_increment_percent=0))
+        
+        for d in data : 
+            docu= {} 
+            docu["id"] = str(uuid.uuid4())
+            docu["file"] = name
+            docu["text"] = str(d)
+            container.upsert_item(docu)
+    except : 
+     raise     
+# cou
+    try:
+     query = "SELECT VALUE COUNT(1) FROM c"
+
+     total_count = 0
+
+     result = container.query_items(
+     query=query,
+     enable_cross_partition_query=True)
+
+     for item in result:
+        total_count += item
+
+        print("Total count pdf :", total_count)
+    except:
+        raise
 
 def loadpdffile(db,collection,name,file) :
     
@@ -833,7 +919,7 @@ def authenticate(username):
 
 # Application Streamlit
 def main():
-    st.title("Connection page")
+    st.title("Web application to show how load your data and vectorize in cosmosdb Nosql  Connection page")
 
     coefficient = 0.75
     cachecoeficient = 0.99
@@ -883,11 +969,11 @@ def main():
   
 
         with tab2:
-            st.header("Chargement de document ")
+            st.header("Load document ")
         
-            uploaded_file = st.file_uploader("Choisissez un fichier", type=["pdf", "docx","csv" ,"json"])
+            uploaded_file = st.file_uploader("Choose your file to upload", type=["pdf", "docx","csv", "ppt","xls","xlsx" ,"pptx", "json"])
             if uploaded_file is not None:
-                st.write("Fichier sélectionné:", uploaded_file.name)
+                st.write("File selected: ", uploaded_file.name)
         
             # Enregistrer temporairement le fichier téléchargé pour obtenir le chemin absolu
                 with open(uploaded_file.name, "wb") as f:
@@ -907,6 +993,20 @@ def main():
                         ReadFeed('word')
                         st.write("file load" +uploaded_file.name )
                         
+                        
+                    elif ".xls" in uploaded_file.name:
+                        st.write("this is a file type xls "+ uploaded_file.name )
+                        loadxlsfile(dbsource,'xls',uploaded_file.name,absolute_file_path )
+                        ReadFeed('xls')
+                        st.write("file load" +uploaded_file.name )    
+                    
+                    elif ".ppt" in uploaded_file.name:
+                        st.write("this is a file type ppt "+ uploaded_file.name )
+                        loadpptfile(dbsource,'ppt',uploaded_file.name,absolute_file_path )
+                        ReadFeed('ppt')
+                        st.write("file load" +uploaded_file.name )    
+                    
+                         
                     elif ".pdf" in uploaded_file.name:
                         st.write("this is a file type pdf "+ uploaded_file.name )
                         loadpdffile(dbsource,'pdf',uploaded_file.name,absolute_file_path )
@@ -934,7 +1034,10 @@ def main():
                 "vector",
                 "full text","hybrid"
                 ]
-
+            if st.button("clear the cache"):
+                st.write("start clear the Cache")
+                clearcache()
+                st.write("Cache cleared.")
             typesearch = st.selectbox(
                 'type search',
                     (models))
@@ -996,13 +1099,29 @@ def main():
     else:
         # Formulaire de connexion
       
-        username_input = st.text_input("Nom d'utilisateur")
-       
+        username_input = st.text_input("User name ")
+        email_input = st.text_input("Email")
+        country_input = st.text_input("country")
 
         if st.button("Connexion"):
             if authenticate(username_input):
                 st.session_state.logged_in = True
                 st.session_state.username = username_input
+                mydbt = client.get_database_client(dbsource)   
+                container = mydbt.create_container_if_not_exists( 
+                id= "user", 
+                partition_key=PartitionKey(path='/name'), 
+                offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000, auto_scale_increment_percent=0))
+                docu= {} 
+                docu["id"] = str(uuid.uuid4())
+                docu["name"] = username_input
+                docu["email"] = email_input
+                docu["country"] = country_input
+                container.upsert_item(docu)
+                
+                
+                
+                
                 st.rerun()
             else:
                 st.error("Nom d'utilisateur ou mot de passe incorrect")
