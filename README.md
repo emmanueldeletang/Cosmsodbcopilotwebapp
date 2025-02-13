@@ -1,5 +1,5 @@
 # Cosmsodbcopilotwebapp
-a full web application where you can load file( csv , json , word , pdf ) and make llm and vector search with sample code to bulid your copilot and load your data inside and put question and answer in cache to save time
+a full web application where you can load file( csv , json , word , pdf , ppt , excel too ) and make llm and vector search with sample code to bulid your copilot and load your data inside and put question and answer in cache to save time
 you can test with this new version de full text search and hybrid search in cosmsodb ... be sure you have activate the feature in preview as present here https://learn.microsoft.com/en-us/azure/cosmos-db/gen-ai/full-text-search
 
 
