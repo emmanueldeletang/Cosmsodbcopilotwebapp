@@ -37,6 +37,7 @@ from langchain_community.vectorstores.azure_cosmos_db_no_sql import (
 )
 from langchain_community.document_loaders import UnstructuredPowerPointLoader
 from langchain_community.document_loaders import UnstructuredExcelLoader
+import pandas as pd
 
 
 load_dotenv()
@@ -214,6 +215,8 @@ def loadxlsfile(db,collection, name,filepath) :
     mydbt = client.get_database_client(db)   
     loader = UnstructuredExcelLoader(filepath, mode="elements")
     data = loader.load()
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=150)
+    docs = text_splitter.split_documents(data)
     
     try:
         container = mydbt.create_container_if_not_exists( 
@@ -221,7 +224,7 @@ def loadxlsfile(db,collection, name,filepath) :
         partition_key=PartitionKey(path='/id'), 
         offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000, auto_scale_increment_percent=0))
         
-        for d in data : 
+        for d in docs : 
             docu= {} 
             docu["id"] = str(uuid.uuid4())
             docu["file"] = name
@@ -419,6 +422,7 @@ def add_doc(openai_client, collection, doc,name):
         doc1["id"] = doc["id"]
         doc1["source"]= name
         doc1["text"]= doc["text"]
+        doc1["file"]= doc["file"]
         doc1["embedding"] = generate_embeddings(openai_client, json.dumps(doc))
         
     
@@ -769,7 +773,7 @@ def generatecompletionede(user_prompt, username,vector_search_results, chat_hist
     You are friendly, helpful, and informative and can be lighthearted. Be concise in your responses, but still friendly.use the name of the file where the information is stored to provide the answer.
         - start with the hello ''' + username + '''
         - Only answer questions related to the information provided below. 
-        - Write two lines of whitespace between each answer in the list.'''
+        '''
 
     # Create a list of messages as a payload to send to the OpenAI Completions API
 
@@ -900,7 +904,8 @@ def ReadFeedargus(collection):
             summary_output = extract_gpt_summary_output(doc["extracted_data"],'gpt_summary_output')
             details = extract_gpt_summary_output(doc["extracted_data"],'gpt_extraction_output')
             doc1 = {}
-            doc1["id"] = doc["id"]
+            doc1["file"] = doc["id"]
+            doc1["id"] = str(uuid.uuid4())
             doc1["summary_output"] = summary_output
             doc1["text"] = summary_output
             doc1["details"] = details
@@ -1051,7 +1056,7 @@ def main():
                 st.chat_message(msg["role"]).write(msg["content"])
            
                           
-            if prompt := st.chat_input(placeholder="groupama"):
+            if prompt := st.chat_input(placeholder="enter your question here ? "):
                 st.session_state.messages.append({"role": "user", "content": prompt})
                 st.chat_message("user").write(prompt)
                 with st.chat_message("assistant"):
@@ -1090,6 +1095,27 @@ def main():
                     st.write("argus data are in the vector you can chat in the chat tab")
             
         with tab5:
+            
+            if st.button("show file loads  "):
+                
+                  
+                st.write(f"LIST OF FILE LOAD ")  
+                mydbt = client.get_database_client(dbsource)   
+                container = mydbt.get_container_client(colvector)
+    
+                results = list(container.query_items(
+                query= '''
+                SELECT distinct (c.file) FROM c
+                ''',
+                enable_cross_partition_query=True, populate_query_metrics=True))
+
+                print(results)
+
+                df = pd.DataFrame(results, columns=['file'])
+
+                st.dataframe(df)
+                
+            
             st.write("made by emmanuel deletang in case of need contact him at edeletang@microsoft.com")
                 
 
@@ -1107,7 +1133,7 @@ def main():
             if authenticate(username_input):
                 st.session_state.logged_in = True
                 st.session_state.username = username_input
-                mydbt = client.get_database_client(dbsource)   
+                mydbt = client.create_database_if_not_exists(id=dbsource)
                 container = mydbt.create_container_if_not_exists( 
                 id= "user", 
                 partition_key=PartitionKey(path='/name'), 
