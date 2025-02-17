@@ -123,7 +123,7 @@ def createvectordb(collection):
 
 
 
-def loaddata(db,collection, filepath) :
+def loaddata(db,collection, name,filepath) :
     
   
     mydbt = client.get_database_client(db)   
@@ -139,6 +139,7 @@ def loaddata(db,collection, filepath) :
         with open(filename,encoding="utf8") as file:
             docu = json.load(file)
             for d in docu:
+                d["file"] = name
                 d['text']= json.dumps(d)
                 container.upsert_item(d)
         
@@ -1017,12 +1018,14 @@ def main():
                         loadpdffile(dbsource,'pdf',uploaded_file.name,absolute_file_path )
                         ReadFeed('pdf')
                         st.write("file load" +uploaded_file.name )
+                        
                     elif ".json" in uploaded_file.name:
                         st.write("this is a file type json "+ uploaded_file.name )
                         name = uploaded_file.name.replace('.json', '')
-                        loaddata(dbsource,name,absolute_file_path )
-                        ReadFeed('pdf')
+                        loaddata(dbsource,name,uploaded_file.name,absolute_file_path )
+                        ReadFeed(name)
                         st.write("file load" +uploaded_file.name )
+                        
                     elif ".csv" in uploaded_file.name:
                         st.write("this is a file type csv "+ uploaded_file.name )
                         loadcsvfile(dbsource,'csv',uploaded_file.name,absolute_file_path )
@@ -1133,7 +1136,7 @@ def main():
             if authenticate(username_input):
                 st.session_state.logged_in = True
                 st.session_state.username = username_input
-                mydbt = client.create_database_if_not_exists(id=dbsource)
+                mydbt = client.create_database_if_not_exists(id='user')
                 container = mydbt.create_container_if_not_exists( 
                 id= "user", 
                 partition_key=PartitionKey(path='/name'), 
