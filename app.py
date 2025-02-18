@@ -127,7 +127,7 @@ def loaddata(db,collection, name,filepath) :
     
   
     mydbt = client.get_database_client(db)   
-  
+    print (name)
 
     try:
         container = mydbt.create_container_if_not_exists( 
@@ -139,9 +139,11 @@ def loaddata(db,collection, name,filepath) :
         with open(filename,encoding="utf8") as file:
             docu = json.load(file)
             for d in docu:
-                d["file"] = name
-                d['text']= json.dumps(d)
-                container.upsert_item(d)
+                doc= {} 
+                doc["id"] = str(uuid.uuid4())
+                doc["file"] = str(name)
+                doc["text"]= json.dumps(d)
+                container.upsert_item(doc)
         
 
         query = "SELECT VALUE COUNT(1) FROM c"
@@ -1158,3 +1160,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
