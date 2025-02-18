@@ -20,6 +20,7 @@ you can test with this new version de full text search and hybrid search in cosm
 - Install required libraries: pip install -r requirements.txt
 - Replace keys with your own values in example.env
 - don't forget to have the model openAI one text-embbeding and one GPT ( can be 4.0 ,3.5 ) ...
+- in some case you can have a bug when you create the collection , create a collection vector manually with the full text search policy for "/text"
 - TO LAUNCH THE APPLICATION JUST do Streamlit run app.py
 - enter a login name and after in the first login and all the collections will be create just push the button ( create vector db  )
 - have fun
