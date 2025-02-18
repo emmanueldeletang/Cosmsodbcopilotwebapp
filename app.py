@@ -927,7 +927,7 @@ def authenticate(username):
 
 # Application Streamlit
 def main():
-    st.title("Web application to show how load your data and vectorize in cosmosdb Nosql  Connection page")
+    st.title("Web application to show how to load your data and vectorize in cosmosdb Nosql Connection page")
 
     coefficient = 0.75
     cachecoeficient = 0.99
@@ -989,7 +989,7 @@ def main():
 
             # Obtenir le chemin absolu du fichier
                 absolute_file_path = os.path.abspath(uploaded_file.name)
-                st.write(f"Le chemin absolu du fichier est : {absolute_file_path}")
+                st.write(f"the file path is  : {absolute_file_path}")
                 
                 
                 if st.button("load data "):
@@ -1035,7 +1035,7 @@ def main():
                         st.write("file load" +uploaded_file.name )
 
                     os.remove(absolute_file_path)
-                    st.write(f"Le fichier temporaire {absolute_file_path} a été supprimé.")
+                    st.write(f"the temp file  {absolute_file_path} was delete .")
 
          
         with tab3:
