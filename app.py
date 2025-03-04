@@ -111,7 +111,7 @@ def createvectordb(collection):
         offer_throughput=ThroughputProperties(auto_scale_max_throughput=1000, auto_scale_increment_percent=0),
         indexing_policy=indexing_policy , 
         vector_embedding_policy=vector_embedding_policy,
-        #full_text_policy=fulltxt,
+        full_text_policy=fulltxt,
         ) 
         
         
