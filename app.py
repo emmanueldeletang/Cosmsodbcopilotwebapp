@@ -38,6 +38,8 @@ from langchain_community.vectorstores.azure_cosmos_db_no_sql import (
 from langchain_community.document_loaders import UnstructuredPowerPointLoader
 from langchain_community.document_loaders import UnstructuredExcelLoader
 import pandas as pd
+from azure.ai.textanalytics import TextAnalyticsClient
+from azure.core.credentials import AzureKeyCredential
 
 
 load_dotenv()
@@ -53,6 +55,8 @@ config = dotenv_values(env_name)
 HOST = config['cosmos_host']
 key = config['cosmos_key']
 
+ta_endpoint = config["TEXT_ANALYTICS_ENDPOINT"]
+ta_key = config["TEXT_ANALYTICS_KEY"]
 
 container_name = "ChatMessages"
 
@@ -127,7 +131,7 @@ def loaddata(db,collection, name,filepath) :
     
   
     mydbt = client.get_database_client(db)   
-    print (name)
+  
 
     try:
         container = mydbt.create_container_if_not_exists( 
@@ -157,7 +161,7 @@ def loaddata(db,collection, name,filepath) :
         for item in result:
             total_count += item
 
-        print("Total count json:", total_count)
+     
         
        
     
@@ -167,6 +171,25 @@ def loaddata(db,collection, name,filepath) :
     
     
 def loadpptfile(db,collection, name,filepath) :
+    def loadpptfile(db, collection, name, filepath):
+        """
+        Loads a PowerPoint file, splits its content into chunks, and uploads the chunks as documents
+        to an Azure Cosmos DB container.
+        Args:
+            db (str): The name of the database in Azure Cosmos DB.
+            collection (str): The name of the collection (container) in the database.
+            name (str): The name of the PowerPoint file being processed.
+            filepath (str): The file path to the PowerPoint file.
+        Raises:
+            Exception: If there is an error during the creation of the container or the insertion of items.
+            Exception: If there is an error during the execution of the query to count the total documents.
+        Notes:
+            - The function uses the `UnstructuredPowerPointLoader` to load the PowerPoint file and extract its content.
+            - The content is split into chunks using `RecursiveCharacterTextSplitter` with a chunk size of 1000 characters
+              and an overlap of 150 characters.
+            - Each chunk is stored as a document in the specified Azure Cosmos DB container with a unique ID.
+            - The function also queries the total count of documents in the container and prints the result.
+        """
     
     loader = UnstructuredPowerPointLoader(filepath)
     data = loader.load() 
@@ -204,7 +227,6 @@ def loadpptfile(db,collection, name,filepath) :
      for item in result:
         total_count += item
 
-        print("Total count ppt :", total_count)
         
        
     
@@ -214,6 +236,26 @@ def loadpptfile(db,collection, name,filepath) :
 
 
 def loadxlsfile(db,collection, name,filepath) :
+    def loadxlsfile(db, collection, name, filepath):
+        """
+        Loads an Excel file, processes its content, and stores the data into an Azure Cosmos DB container.
+        Args:
+            db (str): The name of the database in Azure Cosmos DB.
+            collection (str): The name of the collection (container) in the database.
+            name (str): The name of the file being processed, used as metadata.
+            filepath (str): The file path to the Excel file to be loaded.
+        Raises:
+            Exception: If there is an error during the creation of the container or the insertion of items.
+            Exception: If there is an error during the execution of the query to count the total items.
+        Functionality:
+            1. Connects to the specified database in Azure Cosmos DB.
+            2. Loads the Excel file using the UnstructuredExcelLoader in "elements" mode.
+            3. Splits the loaded data into smaller chunks using RecursiveCharacterTextSplitter.
+            4. Creates the specified container in the database if it does not already exist, with a partition key on '/id' 
+               and auto-scaling throughput properties.
+            5. Iterates through the split documents, assigns a unique ID to each, and uploads them to the container.
+            6. Executes a query to count the total number of items in the container and prints the result.
+        """
     
     mydbt = client.get_database_client(db)   
     loader = UnstructuredExcelLoader(filepath, mode="elements")
@@ -248,7 +290,7 @@ def loadxlsfile(db,collection, name,filepath) :
      for item in result:
         total_count += item
 
-        print("Total count pdf :", total_count)
+   
     except:
         raise
 
@@ -293,7 +335,7 @@ def loadpdffile(db,collection,name,file) :
      for item in result:
         total_count += item
 
-        print("Total count pdf :", total_count)
+       
         
        
     
@@ -355,8 +397,7 @@ def loadcsvfile(db,collection,name,file) :
      for item in result:
         total_count += item
 
-        print("Total count csv:", total_count)
-        
+     
        
     
     except : 
@@ -409,7 +450,7 @@ def loadwordfile(db,collection,name,file) :
      for item in result:
         total_count += item
 
-        print("Total count word:", total_count)
+     
         
        
     
@@ -488,7 +529,7 @@ def get_similar_docs(openai_client, db, query_text, limit,sim, typesearch):
                 ],
                 enable_cross_partition_query=True, populate_query_metrics=True
             )   
-            print("vector")
+          
          
     elif  typesearch == "full text":
            
@@ -498,7 +539,7 @@ def get_similar_docs(openai_client, db, query_text, limit,sim, typesearch):
                 WHERE  FullTextContainsAll(c.text, @query_text)
                 
             """
-            print (query)
+           
             results = cvector.query_items(
                 query=query,
                 parameters=[
@@ -507,13 +548,13 @@ def get_similar_docs(openai_client, db, query_text, limit,sim, typesearch):
                 ],
                 enable_cross_partition_query=True, populate_query_metrics=True
             )
-            print("full text")
+         
           
     elif  typesearch == "hybrid":
+        try:
             query_vector = generate_embeddings(openai_client, query_text)
             query_text =query_text.split()
-            print (query_text)
-            print(limit)
+          
             
             
             query = f"""
@@ -521,7 +562,7 @@ def get_similar_docs(openai_client, db, query_text, limit,sim, typesearch):
                 FROM c
                 ORDER BY RANK RRF(VectorDistance(c.embedding,"""+ str(query_vector)+"""), FullTextScore(c.text, """+ str(query_text)+"""))
             """
-            print(query)
+           
             results = list(cvector.query_items(
                 query=query,
                 #parameters=[
@@ -531,7 +572,10 @@ def get_similar_docs(openai_client, db, query_text, limit,sim, typesearch):
                 #],
                 enable_cross_partition_query=True
             ))
-            print("hybrid")
+       
+        except Exception as e:
+            print(f"Error during hybrid search query execution: {str(e)}")
+            results = []
          
             
     products = []      
@@ -539,7 +583,7 @@ def get_similar_docs(openai_client, db, query_text, limit,sim, typesearch):
     if results and typesearch != "hybrid" : 
  
         for a in results:
-            print(a)
+           
             source = a['source']
             id = a['id']    
      
@@ -547,28 +591,24 @@ def get_similar_docs(openai_client, db, query_text, limit,sim, typesearch):
             mycolt = mydbt.get_container_client(source)  
             response = mycolt.read_item(item=id, partition_key=id)
             res = response.get('text')
-          
             products.append({"text": res})
             
-        print("fin de traitement")
+  
         
     else:
-        print("debut de traitement hybrid")
-        print(results)
+    
         
         web_tests_list = []
-        print("debut de traitement ")
         # Iterate through the pages and append the items to the list
         for web_test in results:
             web_tests_list.append(web_test)
-        print("debuCOPIE traitement ")
+       
         
         for a in web_tests_list:
-            print(a)
             text = a['text']
             products.append({"text": text})
             
-        print("fin de traitement hybrid")
+     
         
         
         
@@ -660,13 +700,37 @@ def cacheresponse(user_prompt, prompt_vectors, response, username):
     mydbt = client.get_database_client(dbsource)   
     container = mydbt.get_container_client(cachecol)
     
-
+   
+    ta_client = TextAnalyticsClient(
+        endpoint=ta_endpoint,
+        credential=AzureKeyCredential(ta_key)
+    )
+    
+    docu = [user_prompt]
+    
+    resp = ta_client.analyze_sentiment(docu)
+    for doc in resp:
+            Sentiment = doc.sentiment
+            if Sentiment == "positive":
+                Sentiment = "positive"
+                sco = doc.confidence_scores.positive
+            elif Sentiment == "negative":
+                Sentiment = "negative"
+                sco = doc.confidence_scores.negative
+            elif Sentiment == "neutral":
+                Sentiment = "neutral"
+                sco = doc.confidence_scores.neutral
+          
+          
+  
     
     
     # Create a dictionary representing the chat document
     chat_document = {
         'id':  str(uuid.uuid4()),  
         'prompt': user_prompt,
+        "Sentiment": Sentiment,
+        "Scores": sco,
         'completion': response['choices'][0]['message']['content'],
         'completionTokens': str(response['usage']['completion_tokens']),
         'promptTokens': str(response['usage']['prompt_tokens']),
@@ -772,8 +836,8 @@ def clearcache ():
 def generatecompletionede(user_prompt, username,vector_search_results, chat_history):
     
     system_prompt = '''
-    You are an intelligent assistant for yourdata , please answer in the same langage use by the user . You are designed to provide helpful answers to user questions about your data.
-    You are friendly, helpful, and informative and can be lighthearted. Be concise in your responses, but still friendly.use the name of the file where the information is stored to provide the answer.
+    You are an intelligent assistant for yourdata, translate the answer in the same langage use for the ask. You are designed to provide answers to user questions about user's data.
+    You are friendly, helpful, and informative and can be lighthearted. Be concise in your responses.use the name of the file where the information is stored to provide the answer.
         - start with the hello ''' + username + '''
         - Only answer questions related to the information provided below. 
         '''
@@ -838,8 +902,7 @@ def loaddataargus( argusdb,arguscollection , argusurl,arguskey, targetcolection)
     mydbtsource = clientargus.get_database_client(argusdb)   
     mydbt = client.get_database_client(dbsource)   
     
-    print(mydbt)
-    print(mydbtsource)
+ 
     
     try:
         container = mydbt.create_container_if_not_exists( 
@@ -864,7 +927,7 @@ def loaddataargus( argusdb,arguscollection , argusurl,arguskey, targetcolection)
             enable_cross_partition_query=True)
         for item in result:
             total_count += item
-        print("Total count:", total_count)
+     
         return total_count
     except : 
         raise  
@@ -894,11 +957,9 @@ def ReadFeedargus(collection):
         
      
         # Define a point in time to start reading the feed from
-        time = datetime.datetime.now()
-        
-        print (time)
+        #time = datetime.datetime.now()
         time = time - datetime.timedelta(days=1)
-        print (time)
+       
         
         response = mycolt.query_items_change_feed(start_time=time)
         #response = mycolt.query_items_change_feed( )
@@ -929,7 +990,9 @@ def authenticate(username):
 def main():
     st.title("Web application to show how to load your data and vectorize in cosmosdb Nosql Connection page")
 
-    coefficient = 0.75
+    # Coefficient used to set the similarity threshold for database searches
+    # Coefficient used to determine similarity threshold for cache search
+    cachecoeficient = 0.99
     cachecoeficient = 0.99
     maxresult = 5
     global chat_history
@@ -946,7 +1009,7 @@ def main():
         st.success(display)
 
         # Onglets
-        tab1, tab2, tab3, tab4 ,tab5  = st.tabs(["Configuration", "Loading file", "Chat with your data","load argus data " ,"Create by "])
+        tab1, tab2, tab3, tab4 ,tab5  = st.tabs(["Configuration", "Loading file", "Chat with your data","load argus data " ,"Documents load "])
 
         with tab1:
             st.header("Configuration")
@@ -1114,7 +1177,7 @@ def main():
                 ''',
                 enable_cross_partition_query=True, populate_query_metrics=True))
 
-                print(results)
+                
 
                 df = pd.DataFrame(results, columns=['file'])
 
@@ -1160,4 +1223,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-    
